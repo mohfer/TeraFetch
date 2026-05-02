@@ -1,0 +1,31 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Build and packaging outputs
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local app outputs
+downloads/
+file_list.json
+idm_links.txt
+
+# Local secrets/config
+.env
+.env.*
+cookies.json
+
+# Logs and OS/editor noise
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
