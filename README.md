@@ -2,174 +2,182 @@
 
 Batch downloader and IDM link exporter for TeraBox mirror links.
 
-Fetches file lists from TeraBox share URLs or cache URLs, validates links, and exports them for Internet Download Manager (IDM) or downloads directly with curl/yt-dlp.
+TeraFetch allows you to:
 
-## Features
+- Fetch file lists from TeraBox share URLs or cache URLs
+- Validate download links in parallel
+- Export links for Internet Download Manager (IDM)
+- Download files directly using `curl` / `yt-dlp`
 
-- ✅ Auto-detect TeraBox share URLs (uses teraboxdownloader.xyz)
-- ✅ Support cache URLs from teraboxdownloader.xyz/pro
-- ✅ **Parallel link validation** with retry mechanism (5 retries, exponential backoff)
-- ✅ **Separate output files** for valid and failed links
-- ✅ **Performance optimizations**: caching, connection pooling, metrics logging
-- ✅ Batch download with concurrent workers
-- ✅ Multiple quality options (360p, 480p, 720p, 1080p)
-- ✅ Auto re-scrape on expired links
-- ✅ Detailed validation logging
+---
 
-## Architecture
+## ✨ Features
 
-TeraFetch follows **Clean Architecture** principles with clear layer separation:
+- Auto-detect TeraBox share URLs (via `teraboxdownloader.xyz`)
+- Support cache URLs (`teraboxdownloader.xyz/pro`)
+- Parallel link validation with retry mechanism (5 retries, exponential backoff)
+- Separate output files for valid and failed links
+- Batch download with concurrent workers
+- Multiple quality options: `360p`, `480p`, `720p`, `1080p`
+- Auto re-scrape on expired links
 
-- **Handler Layer** (`main.py`) - CLI parsing and user interaction
-- **Service Layer** (`src/services.py`) - Business logic
-- **Repository Layer** (`src/repositories.py`) - I/O operations
-- **Protocol Layer** (`src/protocols.py`) - Interface definitions
+---
 
-### Design Patterns
+## 📦 Requirements
 
-- ✅ Separation of Concerns - Clear layer boundaries
-- ✅ Dependency Injection - Constructor injection for testability
-- ✅ Protocol-Based Design - Flexible implementations
-- ✅ Single Responsibility - One reason to change per class
-- ✅ Composition Over Inheritance - No complex hierarchies
+| Dependency | Required For |
+|------------|--------------|
+| `uv` | Package & environment management |
+| `playwright` (Chromium) | Scraping TeraBox share URLs |
+| `curl` | Direct file downloads |
+| `yt-dlp` | Quality-based downloads (`--quality`) |
 
-## Install
+---
+
+## ⚙️ Installation
 
 ```bash
 # Install dependencies
 uv sync
 
-# Install Playwright browsers (required for TeraBox share URL scraping)
+# Install Playwright browsers (required for scraping)
 uv run playwright install chromium
 ```
 
-## Usage
+---
 
-### Export to IDM (Recommended)
+## 🚀 Usage
+
+### 1. Export to IDM (Recommended)
 
 ```bash
-# From TeraBox share URL with validation
+# From TeraBox share URL
 uv run main.py -u "https://www.1024tera.com/sharing/link?surl=XXX" --idm --idm-check
 
-# From cache URL with validation
+# From cache URL
 uv run main.py -u "https://teradl.kingx.dev/cache?hash=XXX" --idm --idm-check
 
-# Adjust validation workers (default: 3)
+# Adjust validation workers
 uv run main.py -u "URL" --idm --idm-check --idm-check-workers 5
 ```
 
 **Output files:**
-- `downloads/idm_links.txt` - Valid links ready for IDM import
-- `downloads/idm_links_failed.txt` - Failed links (can be tried manually in IDM)
-- `downloads/validation.log` - Detailed validation logs (auto-cleared each run)
 
-**Validation features:**
-- Parallel validation with configurable workers (default: 3)
-- 5 retries with exponential backoff (1s, 2s, 4s, 8s, 16s)
-- HTTP 5xx errors are retried, HTTP 4xx errors fail immediately
-- Detailed logging of status codes, headers, and response content
+| File | Description |
+|------|-------------|
+| `downloads/idm_links.txt` | Valid links (ready for IDM import) |
+| `downloads/idm_links_failed.txt` | Failed links |
+| `downloads/validation.log` | Validation logs (auto-cleared each run) |
 
-### Direct Download
+---
+
+### 2. Direct Download
 
 ```bash
 # From TeraBox share URL
-uv run main.py -u "https://www.1024tera.com/sharing/link?surl=XXX" --workers 5
+uv run main.py -u "URL" --workers 5
 
 # From cache URL
-uv run main.py -u "https://teradl.kingx.dev/cache?hash=XXX" --workers 5
+uv run main.py -u "URL" --workers 5
 
 # From saved JSON
 uv run main.py --from-json downloads/file_list.json --limit 10
 ```
 
-### Advanced Options
+---
+
+### 3. Advanced Usage
 
 ```bash
-# Scrape only (save to JSON without downloading)
+# Scrape only (save to JSON, no download)
 uv run main.py -u "URL" --scrape-only
 
 # Download with quality selection (requires yt-dlp)
 uv run main.py --from-json downloads/file_list.json --quality 720p
 
-# Download specific range
+# Download a specific range
 uv run main.py --from-json downloads/file_list.json --start 11 --limit 10
 
-# Custom output paths
+# Custom IDM output path
 uv run main.py -u "URL" --idm --idm-output custom/path.txt
 ```
 
-## Options
+---
 
-```text
-Input:
-  --url, -u                 TeraBox share URL or cache URL
-  --from-json, -f           Path to file_list.json from previous scrape
+## 🧩 Options
 
-Download:
-  --output, -o              Output folder (default: downloads)
-  --workers, -w             Concurrent downloads (default: 3)
-  --limit, -n               Max number of files to download/export
-  --start, -s               Start from file number (default: 1)
-  --quality, -q             Download m3u8 stream quality (best/1080p/720p/480p/360p)
+### Input
 
-IDM Export:
-  --idm                     Export links to TXT and skip downloading
-  --idm-output              TXT output path (default: downloads/idm_links.txt)
-  --idm-check               Validate links before exporting
-  --idm-check-workers       Parallel validation workers (default: 3)
+| Flag | Description |
+|------|-------------|
+| `--url`, `-u` | TeraBox share URL or cache URL |
+| `--from-json`, `-f` | Path to saved `file_list.json` |
 
-Other:
-  --scrape-only             Only scrape, save to JSON
-  --verbose, -v             Debug logging
-```
+### Download
 
-## Supported URLs
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--output`, `-o` | `downloads` | Output folder |
+| `--workers`, `-w` | `3` | Concurrent download workers |
+| `--limit`, `-n` | — | Max number of files to download |
+| `--start`, `-s` | `1` | Start from file number |
+| `--quality`, `-q` | — | Quality: `best` / `1080p` / `720p` / `480p` / `360p` |
 
-### TeraBox Share URLs (Auto-detect)
+### IDM Export
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--idm` | — | Export links to TXT (skip download) |
+| `--idm-output` | — | Custom TXT output path |
+| `--idm-check` | — | Validate links before exporting |
+| `--idm-check-workers` | `3` | Validation worker count |
+
+### Other
+
+| Flag | Description |
+|------|-------------|
+| `--scrape-only` | Scrape and save JSON only, no download |
+| `--verbose`, `-v` | Enable debug logging |
+
+---
+
+## 🔗 Supported URLs
+
+### TeraBox Share URLs
+
 - `https://www.1024tera.com/sharing/link?surl=XXX`
 - `https://terabox.app/sharing/link?surl=XXX`
 
-**Note:** Other TeraBox domains may work but haven't been tested yet.
+> Other domains may work but are not fully tested.
 
 ### Cache URLs
+
 - `https://teradl.kingx.dev/cache?hash=XXX`
 
-**Note:** Other cache URLs (teraboxdownloader.xyz, teraboxdownloader.pro) may work but haven't been tested yet.
+> Other cache providers (`teraboxdownloader.xyz` / `.pro`) may work but are not fully tested.
 
-## Validation Details
+---
 
-When using `--idm-check`, the script validates each link before exporting:
+## 🔍 Link Validation (IDM Mode)
 
-**Retry Logic:**
-- HTTP 5xx errors (500, 502, 503): Retry up to 5 times with exponential backoff
-- HTTP 4xx errors (400, 404, 403): Fail immediately (permanent errors)
-- Network errors (timeout, connection): Retry up to 5 times
+When `--idm-check` is used, each link is validated before export.
 
-**Parallel Validation:**
-- Default: 3 workers (balanced speed and safety)
-- Increase workers for faster validation (risk: rate limiting)
-- Decrease workers if getting too many HTTP 500 errors
+> ⚠️ Some links may fail validation but still work in IDM due to server-side behavior.
 
-**Output:**
-- Valid links → `idm_links.txt`
-- Failed links → `idm_links_failed.txt` (can be tried manually in IDM)
-- Detailed logs → `validation.log` (cleared each run)
+---
 
-## Notes
+## 📝 Notes
 
-- **Playwright required**: TeraBox share URLs use Playwright to scrape teraboxdownloader.xyz
-- **curl required**: Direct downloads use curl (must be in PATH)
-- Links can expire or fail validation but still work in IDM (server-side issues)
-- Use `--url` instead of `--from-json` to enable auto re-scrape on expired links
-- Download speed depends on mirror/proxy server performance
-- `--quality` requires yt-dlp installed: `pip install yt-dlp`
-- Recommended validation workers: 1-3 (safe), 5-10 (fast but may trigger rate limits)
+- Use `--url` instead of `--from-json` to enable auto re-scraping on expired links.
+- Download speed depends on the mirror/proxy server.
+- Install `yt-dlp` for quality-based downloads:
+  ```bash
+  pip install yt-dlp
+  ```
 
-## Performance
+### Recommended Worker Count
 
-TeraFetch includes several performance optimizations:
-
-- **Caching**: `@lru_cache` for repeated URL parsing (2-5x speedup)
-- **Connection pooling**: Reuse HTTP connections for validation (30-50% faster)
-- **Parallel processing**: Concurrent downloads and validation
-- **Metrics logging**: Track validation/download performance in `downloads/metrics.jsonl`
+| Workers | Risk Level |
+|---------|------------|
+| 1–3 | Safe (low risk of rate limiting) |
+| 5–10 | Faster (higher risk of rate limiting) |
