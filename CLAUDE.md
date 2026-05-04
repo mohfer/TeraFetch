@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-TeraFetch is a batch downloader and IDM link exporter for TeraBox mirror links. It fetches file lists from TeraBox share URLs or cache URLs, validates links, and exports them for Internet Download Manager (IDM) or downloads directly with curl/yt-dlp.
+TeraFetch is a batch downloader and IDM link exporter for TeraBox. It scrapes file lists from TeraBox share URLs, validates download links, and exports for IDM or downloads directly.
 
-The project follows **Clean Architecture** with clear layer separation for maintainability and testability.
+The project uses a **simplified modular architecture** with clear separation of concerns for maintainability and ease of understanding.
 
 ## Development Commands
 
@@ -33,85 +33,75 @@ uv run main.py -u "URL" --idm --idm-check --idm-check-workers 5
 
 ### Testing
 ```bash
-# Syntax check
-python -m py_compile main.py src/*.py
+# Syntax check all files
+python -m py_compile main.py scrapers.py src/*.py
 
 # Test specific module
-python -m py_compile src/downloader.py
+python -m py_compile scrapers.py
 ```
 
 ## Architecture
 
-### Layer Structure
+### Simplified Structure
 
 ```
-Handler Layer (main.py)
-    ↓
-Service Layer (src/services.py)
-    ↓
-Repository Layer (src/repositories.py)
-    ↓
-Protocol Layer (src/protocols.py)
+terafetch/
+├── main.py              # CLI + orchestration
+├── scrapers.py          # Scraping logic (share URLs + cache URLs)
+├── src/
+│   ├── downloader.py    # Download + validation
+│   └── utils.py         # Helper utilities
 ```
 
-**Handler Layer** (`main.py`)
-- CLI argument parsing
-- User interaction (prompts, output formatting)
-- Delegates to services
-- No business logic or I/O
+**main.py** - CLI and orchestration
+- Argument parsing with argparse
+- User interaction (prompts, output)
+- Download orchestration with retry logic
+- IDM export handling
 
-**Service Layer** (`src/services.py`)
-- `ScraperService` - Fetch and normalize file lists
-- `DownloadService` - Download orchestration with retry logic
-- `ValidationService` - Link validation and export
-- Pure business logic, no I/O operations
+**scrapers.py** - Unified scraping module
+- `fetch_files()` - Auto-detect URL type and fetch
+- `fetch_terabox_share()` - Playwright-based scraping for share URLs
+- `fetch_from_cache()` - API-based scraping for cache URLs
+- `save_file_list()` / `load_file_list()` - JSON persistence
 
-**Repository Layer** (`src/repositories.py`)
-- `FileSystemRepository` - File operations
-- `HttpRepository` - HTTP client
-- `ApiRepository` - TeraBox API calls
-- `FileListRepository` - JSON storage
-- `LinkExportRepository` - Export links to TXT
-- All I/O operations isolated here
+**src/downloader.py** - Download implementation
+- `download_batch()` - Concurrent downloads with ThreadPoolExecutor
+- `collect_download_links()` - Parallel validation
+- `_validate_download_url()` - Retry mechanism with exponential backoff
+- Performance optimizations: `@lru_cache`, connection pooling
 
-**Protocol Layer** (`src/protocols.py`)
-- Interface definitions for dependency injection
-- Enables testing with mocks/fakes
-- Protocols: `HttpClient`, `FileSystem`, `Logger`, `Downloader`, `Validator`, `Scraper`
+**src/utils.py** - Helper utilities
+- `validate_url()` - URL validation
+- `is_terabox_share_url()` - URL type detection
+- `setup_logging()` - Logging configuration
 
 ### Core Modules
 
-**src/terabox_xyz.py** - Playwright-based scraper
-- `fetch_terabox_xyz()` - Fetches files from TeraBox share URLs
-- Uses async Playwright to intercept API responses from teradl.kingx.dev/gettask
-- Returns normalized file list
-
-**src/convert.py** - Data normalization
-- `convert_teraboxdownloader()` - Converts cache API format to TeraFetch format
-- Used for cache URLs (teradl.kingx.dev)
-- Can be run standalone: `python src/convert.py response.json -o output.json`
+**scrapers.py** - Unified scraping module
+- `fetch_files()` - Auto-detect URL type and fetch files
+- `fetch_terabox_share()` - Playwright-based scraping for share URLs
+- `fetch_from_cache()` - API-based scraping for cache URLs
+- `convert_teraboxdownloader()` - Normalize cache API responses
+- `save_file_list()` / `load_file_list()` - JSON persistence
 
 **src/downloader.py** - Download implementation
 - `download_batch()` - Concurrent downloads with ThreadPoolExecutor
 - `collect_download_links()` - Parallel validation with configurable workers
 - `_validate_download_url()` - URL validation with retry (5 attempts, exponential backoff)
-- Performance optimizations: `@lru_cache`, connection pooling, metrics logging
-
-**src/performance.py** - Performance monitoring
-- `timing_decorator` - Automatic execution time tracking
-- `PerformanceMonitor` - Context manager for code blocks
-- `log_metric()` - Logs to `downloads/metrics.jsonl`
+- Performance optimizations: `@lru_cache`, connection pooling
 
 **src/utils.py** - Helper utilities
 - `validate_url()` - Validates supported URLs (only tested URLs documented)
 - `is_terabox_share_url()` - Distinguishes share URLs from cache URLs
+- `setup_logging()` - Logging configuration
 
 ### Data Flow
 
 1. **URL Detection**: Check if TeraBox share URL or cache URL
 2. **Fetching**:
-   - Share URLs → `fetch_terabox_xyz()` (Playwright)
-   - Cache URLs → `ApiRepository.fetch_cache_data()` → `convert_teraboxdownloader()`
+   - Share URLs → `fetch_terabox_share()` (Playwright)
+   - Cache URLs → `fetch_from_cache()` → `convert_teraboxdownloader()`
 3. **Normalization**: Both produce same file record format
 4. **Storage**: Save to `downloads/file_list.json`
 5. **Download/Export**:
@@ -142,7 +132,7 @@ Protocol Layer (src/protocols.py)
 - **Caching**: `@lru_cache` on `_get_download_url()` (2-5x speedup)
 - **Connection Pooling**: `requests.Session` with HTTPAdapter (30-50% faster)
 - **Parallel Validation**: ThreadPoolExecutor with configurable workers (default: 3)
-- **Metrics Logging**: Auto-logged to `downloads/metrics.jsonl`
+- **Parallel Downloads**: Concurrent downloads with ThreadPoolExecutor
 
 ## Output Files
 
@@ -150,12 +140,12 @@ Protocol Layer (src/protocols.py)
 - `downloads/idm_links.txt` - Valid links for IDM import
 - `downloads/idm_links_failed.txt` - Failed links (can be tried manually)
 - `downloads/validation.log` - Detailed validation logs (auto-cleared each run)
-- `downloads/metrics.jsonl` - Performance metrics
 
 ## Supported URLs (Tested)
 
 **TeraBox Share URLs:**
 - `https://www.1024tera.com/sharing/link?surl=XXX`
+- `https://1024terabox.com/s/XXX`
 - `https://terabox.app/sharing/link?surl=XXX`
 
 **Cache URLs:**
