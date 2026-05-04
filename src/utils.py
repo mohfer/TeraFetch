@@ -14,19 +14,12 @@ def setup_logging(verbose: bool = False) -> None:
 
 
 def validate_url(url: str) -> bool:
-    """Validate supported TeraBox mirror and share URLs.
-
-    Only includes URLs that have been tested and verified to work.
-    """
+    """Check if URL matches supported TeraBox patterns."""
     patterns = [
-        # Cache URLs (tested)
         r"https?://teradl\.kingx\.dev/cache\?hash=[a-f0-9]+",
-
-        # TeraBox share URLs (tested)
         r"https?://(?:www\.)?1024tera\.com/sharing/link\?surl=",
+        r"https?://(?:www\.)?1024terabox\.com/s/",
         r"https?://(?:www\.)?terabox\.app/sharing/link\?surl=",
-
-        # Untested but may work (kept for backward compatibility)
         r"https?://(?:www\.)?teraboxdownloader\.xyz/cache\?hash=[a-f0-9]+",
         r"https?://(?:www\.)?teraboxdownloader\.pro/cache\?hash=[a-f0-9]+",
         r"https?://(?:www\.)?terabox\.com/(?:s/|sharing/link\?surl=|wap/share/filelist\?surl=)",
@@ -36,16 +29,11 @@ def validate_url(url: str) -> bool:
 
 
 def is_terabox_share_url(url: str) -> bool:
-    """Check if URL is a TeraBox share link (not a cache URL).
-
-    Only includes URLs that have been tested and verified to work.
-    """
+    """Check if URL is a TeraBox share link (not cache URL)."""
     patterns = [
-        # Tested and working
         r"https?://(?:www\.)?1024tera\.com/sharing/link\?surl=",
+        r"https?://(?:www\.)?1024terabox\.com/s/",
         r"https?://(?:www\.)?terabox\.app/sharing/link\?surl=",
-
-        # Untested but may work (kept for backward compatibility)
         r"https?://(?:www\.)?terabox\.com/(?:s/|sharing/link\?surl=|wap/share/filelist\?surl=)",
         r"https?://(?:www\.)?teraboxapp\.com/(?:s/|sharing/link\?surl=)",
     ]

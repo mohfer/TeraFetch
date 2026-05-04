@@ -1,6 +1,4 @@
-"""
-downloader.py - Download files using curl with progress, speed display, and concurrent support.
-"""
+"""Download files using curl with progress and concurrent support."""
 
 import json
 import logging
@@ -10,8 +8,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
 from pathlib import Path
-
-from .performance import timing_decorator, PerformanceMonitor, log_metric
 
 logger = logging.getLogger(__name__)
 
@@ -27,17 +23,12 @@ def download_one(
     total: int = 0,
     referer: str = REFERER,
 ) -> tuple[str, bool, str, str]:
-    """Download a single file with progress tracking and speed display.
-
-    Returns (filename, success, message, error_type)
-    error_type: "expired" | "html" | "timeout" | "other" | ""
-    """
+    """Download with curl. Returns (filename, success, message, error_type)."""
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     filename = output_path.name
     prefix = f"[{file_num}/{total}]"
 
-    # Skip if already downloaded
     if output_path.exists() and output_path.stat().st_size > 1024:
         with open(output_path, "rb") as f:
             head = f.read(200)
@@ -111,9 +102,7 @@ def download_one(
         _safe_print(f"{prefix} [FAIL] {filename} - {e}")
         return filename, False, str(e), "other"
 
-    # Verify download
     if not output_path.exists() or output_path.stat().st_size < 1024:
-        # Check if it's a JSON error from teradl
         if output_path.exists():
             with open(output_path, "rb") as f:
                 head = f.read(500)
@@ -132,13 +121,11 @@ def download_one(
         head = f.read(500)
     head_lower = head.lower()
 
-    # Check for link expired error
     if b'"error"' in head_lower and b"link expired" in head_lower:
         output_path.unlink()
         _safe_print(f"{prefix} [FAIL] {filename} - link expired")
         return filename, False, "link expired", "expired"
 
-    # Check for HTML response
     if b"<html" in head_lower or b"<!doctype" in head_lower:
         output_path.unlink()
         _safe_print(f"{prefix} [FAIL] {filename} - got HTML instead of file")
@@ -162,10 +149,7 @@ def download_one_stream(
     total: int = 0,
     quality: str = "best",
 ) -> tuple[str, bool, str, str]:
-    """Download m3u8 stream using yt-dlp.
-
-    Returns (filename, success, message, error_type)
-    """
+    """Download m3u8 stream using yt-dlp."""
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     filename = output_path.name
@@ -191,7 +175,6 @@ def download_one_stream(
     start_time = time.time()
 
     try:
-        # Run yt-dlp with live output (shows progress bar)
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -218,8 +201,6 @@ def download_one_stream(
         _safe_print(f"{prefix} [FAIL] {filename} - yt-dlp not found, install: pip install yt-dlp")
         return filename, False, "yt-dlp not installed", "other"
 
-    # yt-dlp might save as .mp4 or .mkv
-    # Check for the output file
     actual = None
     for ext in [".mp4", ".mkv", ".webm", ".ts"]:
         candidate = output_path.with_suffix(ext)
@@ -244,23 +225,13 @@ def download_one_stream(
     return filename, True, f"{size_mb:.1f} MB in {elapsed:.0f}s ({avg_speed:.1f} MB/s)", ""
 
 
-@timing_decorator
 def download_batch(
     files: list[dict],
     output_dir: str | Path,
     workers: int = 3,
     quality: str | None = None,
 ) -> dict:
-    """Download multiple files concurrently.
-
-    Args:
-        files: List of file dicts
-        output_dir: Output directory
-        workers: Number of concurrent downloads
-        server: "zip" or "mp4" for direct download
-        quality: If set, download from m3u8 stream (e.g. "1080p", "720p", "best")
-                 Uses yt-dlp instead of curl.
-    """
+    """Download files concurrently. If quality is set, uses yt-dlp for m3u8 streams."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -268,7 +239,6 @@ def download_batch(
 
     tasks = []
     for f in files:
-        # Convert dict to JSON string for caching
         file_json = json.dumps(f, sort_keys=True)
 
         if use_stream:
@@ -282,7 +252,6 @@ def download_batch(
         if not url:
             continue
 
-        # Auto-detect referer based on URL domain
         if "teradl.kingx.dev" in url or "teraboxdownloader" in url:
             ref = "https://www.teraboxdownloader.xyz/"
         else:
@@ -326,20 +295,6 @@ def download_batch(
     batch_elapsed = time.time() - batch_start
     results["elapsed"] = batch_elapsed
 
-    # Log download metrics
-    log_metric({
-        "operation": "download_batch",
-        "total_files": total,
-        "success": results["success"],
-        "failed": results["failed"],
-        "success_rate": results["success"] / total if total > 0 else 0,
-        "elapsed_time": batch_elapsed,
-        "files_per_second": total / batch_elapsed if batch_elapsed > 0 else 0,
-        "workers": workers,
-        "mode": mode,
-        "timestamp": time.time()
-    })
-
     return results
 
 
@@ -348,7 +303,7 @@ def export_download_links(
     path: str | Path,
     server: str = "zip",
 ) -> int:
-    """Export direct download URLs, one URL per line."""
+    """Export direct download URLs to file."""
     urls = []
     for file_info in files:
         file_json = json.dumps(file_info, sort_keys=True)
@@ -372,20 +327,11 @@ def collect_download_links(
     log_file: str = "downloads/validation.log",
     validation_workers: int = 3,
 ) -> tuple[list[str], list[dict]]:
-    """Collect direct download URLs and optionally skip links that already return errors.
-
-    Args:
-        files: List of file dicts
-        validate: Whether to validate URLs before collecting
-        log_file: Path to validation log file
-        validation_workers: Number of parallel validation workers (default 3)
-    """
     urls = []
     errors = []
     total = len(files)
 
     if validate:
-        # Clear old log file at start of new validation run
         log_path = Path(log_file)
         if log_path.exists():
             log_path.unlink()
@@ -393,7 +339,6 @@ def collect_download_links(
         _safe_print(f"Validation log: {log_file}")
         _safe_print(f"Validating {total} links with {validation_workers} workers...\n")
 
-    # Collect URLs without validation first
     tasks = []
     for index, file_info in enumerate(files, 1):
         file_json = json.dumps(file_info, sort_keys=True)
@@ -404,47 +349,27 @@ def collect_download_links(
         tasks.append((index, url, file_info))
 
     if not validate:
-        # No validation, return all URLs
         return [url for _, url, _ in tasks], errors
 
-    # Parallel validation with performance monitoring
-    with PerformanceMonitor("parallel_validation"):
-        validated_urls = []
-        validation_start = time.time()
+    validated_urls = []
 
-        with ThreadPoolExecutor(max_workers=validation_workers) as executor:
-            futures = {}
-            for index, url, file_info in tasks:
-                future = executor.submit(_validate_download_url, url, 5, log_file)
-                futures[future] = (index, url, file_info)
+    with ThreadPoolExecutor(max_workers=validation_workers) as executor:
+        futures = {}
+        for index, url, file_info in tasks:
+            future = executor.submit(_validate_download_url, url, 5, log_file)
+            futures[future] = (index, url, file_info)
 
-            for future in as_completed(futures):
-                index, url, file_info = futures[future]
-                ok, message = future.result()
-                status = "OK" if ok else "SKIP"
-                _safe_print(f"[{index}/{total}] [{status}] {file_info.get('name', 'unknown')} - {message}")
+        for future in as_completed(futures):
+            index, url, file_info = futures[future]
+            ok, message = future.result()
+            status = "OK" if ok else "SKIP"
+            _safe_print(f"[{index}/{total}] [{status}] {file_info.get('name', 'unknown')} - {message}")
 
-                if ok:
-                    validated_urls.append((index, url))
-                else:
-                    errors.append({"file": file_info.get("name", "unknown"), "error": message, "url": url})
+            if ok:
+                validated_urls.append((index, url))
+            else:
+                errors.append({"file": file_info.get("name", "unknown"), "error": message, "url": url})
 
-        validation_elapsed = time.time() - validation_start
-
-        # Log validation metrics
-        log_metric({
-            "operation": "validation_batch",
-            "total_links": total,
-            "valid_links": len(validated_urls),
-            "failed_links": len(errors),
-            "success_rate": len(validated_urls) / total if total > 0 else 0,
-            "elapsed_time": validation_elapsed,
-            "links_per_second": total / validation_elapsed if validation_elapsed > 0 else 0,
-            "workers": validation_workers,
-            "timestamp": time.time()
-        })
-
-    # Sort by original index to maintain order
     validated_urls.sort(key=lambda x: x[0])
     urls = [url for _, url in validated_urls]
 
@@ -452,7 +377,7 @@ def collect_download_links(
 
 
 def save_links(urls: list[str], path: str | Path) -> None:
-    """Save URLs to a TXT file, one URL per line."""
+    """Save URLs to TXT file."""
     output_path = Path(path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
@@ -462,12 +387,7 @@ def save_links(urls: list[str], path: str | Path) -> None:
 
 
 def _validate_download_url(url: str, max_retries: int = 5, log_file: str = "validation.log") -> tuple[bool, str]:
-    """Probe a URL with download-like headers and reject JSON/HTML error responses.
-
-    Retries up to max_retries times with exponential backoff on transient errors.
-    Logs detailed validation info to log_file.
-    Uses connection pooling for better performance.
-    """
+    """Probe URL and reject JSON/HTML responses. Retries on 5xx errors."""
     import requests
     from datetime import datetime
 
@@ -489,15 +409,13 @@ def _validate_download_url(url: str, max_retries: int = 5, log_file: str = "vali
     log(f"\n{'='*80}")
     log(f"Validating: {url}")
 
-    # Use session with connection pooling (reuses TCP connections)
     session = requests.Session()
     session.trust_env = False
 
-    # Configure connection pooling
     adapter = requests.adapters.HTTPAdapter(
         pool_connections=10,
         pool_maxsize=20,
-        max_retries=0  # We handle retries manually
+        max_retries=0
     )
     session.mount('http://', adapter)
     session.mount('https://', adapter)
@@ -521,7 +439,6 @@ def _validate_download_url(url: str, max_retries: int = 5, log_file: str = "vali
                 log(f"Content-Type: {content_type}")
                 log(f"First 200 chars: {text[:200]}")
 
-                # Retry on 5xx server errors (temporary issues)
                 if response.status_code >= 500:
                     last_error = f"HTTP {response.status_code}"
                     log(f"Server error: {last_error}")
@@ -535,7 +452,6 @@ def _validate_download_url(url: str, max_retries: int = 5, log_file: str = "vali
                         log(f"FAIL: {last_error} (after {max_retries} retries)")
                         return False, last_error
 
-                # 4xx errors are permanent, don't retry
                 if response.status_code >= 400:
                     log(f"FAIL: HTTP {response.status_code}")
                     response.close()
@@ -604,37 +520,23 @@ def _format_speed(bps: float) -> str:
 
 @lru_cache(maxsize=1024)
 def _get_download_url(file_info_json: str, server: str = "zip") -> tuple[str | None, bool]:
-    """Get direct download URL from dlink field.
-
-    Returns (url, is_zip). is_zip is always False since we only have dlink.
-
-    Args:
-        file_info_json: JSON string of file_info dict (for caching)
-        server: Server type (unused, kept for compatibility)
-    """
+    """Extract dlink from file_info. Returns (url, is_zip)."""
     file_info = json.loads(file_info_json)
     url = file_info.get("dlink")
     return url, False
 
 
 def _get_stream_url(file_info: dict, quality: str = "best") -> str | None:
-    """Get m3u8 stream URL for specified quality.
-
-    Args:
-        file_info: File dict with quality object
-        quality: "best", "1080p", "720p", "480p", "360p"
-    """
+    """Get m3u8 URL for specified quality."""
     streams = file_info.get("quality")
     if not streams or not isinstance(streams, dict):
         return None
 
     if quality == "best":
-        # Pick highest available quality
         priority = ["1080p", "720p", "480p", "360p"]
         for q in priority:
             if q in streams:
                 return streams[q]
-        # Fallback to first available
         return next(iter(streams.values()), None)
 
     return streams.get(quality)
@@ -646,7 +548,6 @@ def _clean_filename(name: str, is_zip: bool = False) -> str:
         name = "unknown_file"
     for ch in ['/', '\\', ':', '*', '?', '"', '<', '>', '|']:
         name = name.replace(ch, '_')
-    # Change extension to .zip if downloading from zip server
     if is_zip:
         base = name.rsplit(".", 1)[0] if "." in name else name
         name = base + ".zip"

@@ -1,48 +1,16 @@
 #!/usr/bin/env python3
-"""
-TeraFetch - Batch downloader and IDM link exporter for TeraBox.
-
-Refactored with clean architecture:
-- Handler layer (this file): CLI parsing and user interaction
-- Service layer: Business logic
-- Repository layer: I/O operations
-"""
+"""TeraFetch - Batch downloader and IDM link exporter for TeraBox."""
 
 import argparse
-import logging
 import sys
 from pathlib import Path
 
-from src.repositories import (
-    ApiRepository,
-    FileListRepository,
-    FileSystemRepository,
-    HttpRepository,
-    LinkExportRepository,
-)
-from src.services import DownloadService, ScraperService, ValidationService
+from scrapers import fetch_files, load_file_list, save_file_list
+from src.downloader import collect_download_links, download_batch, save_links
 from src.utils import setup_logging
 
 
-class ConsoleLogger:
-    """Simple console logger implementation."""
-
-    def info(self, msg: str, **kwargs) -> None:
-        print(msg)
-
-    def error(self, msg: str, **kwargs) -> None:
-        print(f"Error: {msg}", file=sys.stderr)
-
-    def warning(self, msg: str, **kwargs) -> None:
-        print(f"Warning: {msg}")
-
-    def debug(self, msg: str, **kwargs) -> None:
-        if logging.getLogger().level == logging.DEBUG:
-            print(f"Debug: {msg}")
-
-
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
     p = argparse.ArgumentParser(
         description="TeraFetch - batch downloader and IDM link exporter for TeraBox mirrors",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -73,7 +41,6 @@ def parse_args() -> argparse.Namespace:
 
 
 def print_file_list(files: list[dict]) -> None:
-    """Print formatted file list."""
     total_size = 0
     print(f"\n  {'#':>4}  {'Name':<45} {'Size':>10}")
     print(f"  {'':>4}  {'-'*45} {'-'*10}")
@@ -89,27 +56,22 @@ def print_file_list(files: list[dict]) -> None:
     print(f"\n  Total: {total_size / (1024**3):.1f} GB")
 
 
-def handle_scrape(args: argparse.Namespace, scraper_service: ScraperService, logger: ConsoleLogger) -> list[dict]:
-    """Handle scraping operation."""
-    json_path = str(Path(args.output) / "file_list.json")
-
-    logger.info(f"Fetching: {args.url}")
+def scrape(url: str, json_path: str) -> list[dict]:
+    print(f"Fetching: {url}")
     try:
-        files = scraper_service.fetch_from_url(args.url, json_path)
-        logger.info(f"Found {len(files)} files. Saved to {json_path}")
+        files = fetch_files(url)
+        save_file_list(files, json_path)
+        print(f"Found {len(files)} files. Saved to {json_path}")
         return files
     except Exception as e:
-        logger.error(f"Failed to fetch files: {e}")
+        print(f"Error: Failed to fetch files: {e}", file=sys.stderr)
         sys.exit(1)
 
 
-def handle_idm_export(
-    args: argparse.Namespace,
+def export_for_idm(
     files: list[dict],
-    validation_service: ValidationService,
-    logger: ConsoleLogger,
+    args: argparse.Namespace,
 ) -> None:
-    """Handle IDM link export."""
     idm_path = args.idm_output or str(Path(args.output) / "idm_links.txt")
     idm_failed_path = str(Path(args.output) / "idm_links_failed.txt")
 
@@ -120,35 +82,37 @@ def handle_idm_export(
     selected = files[start_idx:end_idx]
 
     if not selected:
-        logger.info("No files to export.")
+        print("No files to export.")
         return
 
-    logger.info(f"\nWill export {len(selected)} files (index {start_idx+1}-{start_idx+len(selected)})")
+    print(f"\nWill export {len(selected)} files (index {start_idx+1}-{start_idx+len(selected)})")
 
-    valid_count, failed_count = validation_service.export_links(
+    valid_urls, errors = collect_download_links(
         selected,
-        idm_path,
-        idm_failed_path,
         validate=args.idm_check,
         validation_workers=args.idm_check_workers,
     )
 
-    logger.info(f"Exported {valid_count} valid links to {idm_path}")
-    if failed_count > 0:
-        logger.info(f"Exported {failed_count} failed links to {idm_failed_path}")
-        logger.info("Failed links saved - you can try importing these manually in IDM.")
+    save_links(valid_urls, idm_path)
 
-    logger.info("\nUse idm_links.txt as IDM import list.")
+    failed_urls = [err.get("url") for err in errors if err.get("url")]
+    if failed_urls:
+        save_links(failed_urls, idm_failed_path)
+
+    print(f"Exported {len(valid_urls)} valid links to {idm_path}")
+    if failed_urls:
+        print(f"Exported {len(failed_urls)} failed links to {idm_failed_path}")
+        print("Failed links saved - you can try importing these manually in IDM.")
+
+    print("\nUse idm_links.txt as IDM import list.")
 
 
-def handle_download(
-    args: argparse.Namespace,
+def run_download(
     files: list[dict],
-    download_service: DownloadService,
-    scraper_service: ScraperService,
-    logger: ConsoleLogger,
+    args: argparse.Namespace,
+    source_url: str | None,
+    json_path: str,
 ) -> None:
-    """Handle download operation."""
     start_idx = max(0, args.start - 1)
     end_idx = len(files)
     if args.limit:
@@ -156,32 +120,54 @@ def handle_download(
     selected = files[start_idx:end_idx]
 
     if not selected:
-        logger.info("No files to download.")
+        print("No files to download.")
         return
 
-    logger.info(f"\nWill download {len(selected)} files (index {start_idx+1}-{start_idx+len(selected)})")
+    print(f"\nWill download {len(selected)} files (index {start_idx+1}-{start_idx+len(selected)})")
     print_file_list(selected)
 
     try:
         confirm = input(f"\nDownload {len(selected)} files? [Y/n] ").strip().lower()
         if confirm and confirm != "y":
-            logger.info("Cancelled.")
+            print("Cancelled.")
             return
     except EOFError:
         pass
 
-    json_path = str(Path(args.output) / "file_list.json")
-    source_url = args.url if args.url else None
+    max_retries = 2
+    for attempt in range(max_retries + 1):
+        results = download_batch(selected, args.output, args.workers, args.quality)
+        expired = results.get("expired_files", [])
 
-    results = download_service.download_with_retry(
-        selected,
-        args.output,
-        args.workers,
-        source_url,
-        scraper_service,
-        json_path,
-        quality=args.quality,
-    )
+        if not expired or attempt >= max_retries:
+            if expired:
+                print(f"Warning: {len(expired)} files still have expired links")
+            break
+
+        print(f"{len(expired)} file(s) have expired links. Re-scraping (attempt {attempt+1}/{max_retries})...")
+
+        if not source_url:
+            print("Error: Cannot re-scrape - no source URL provided", file=sys.stderr)
+            break
+
+        try:
+            fresh = fetch_files(source_url)
+            save_file_list(fresh, json_path)
+            fresh_lookup = {f.get("fs_id"): f for f in fresh if f.get("fs_id")}
+
+            updated = 0
+            for i, f in enumerate(files):
+                fs_id = f.get("fs_id")
+                if fs_id and fs_id in fresh_lookup:
+                    if f.get("dlink") != fresh_lookup[fs_id].get("dlink"):
+                        files[i] = fresh_lookup[fs_id]
+                        updated += 1
+
+            print(f"Updated {updated} file(s) with fresh links")
+
+        except Exception as e:
+            print(f"Error: Re-scrape failed: {e}", file=sys.stderr)
+            break
 
     elapsed = results.get("elapsed", 0)
     print(f"\n{'='*55}")
@@ -193,46 +179,33 @@ def handle_download(
 
 
 def main() -> None:
-    """Main entry point - handles CLI and delegates to services."""
     args = parse_args()
     setup_logging(args.verbose)
 
-    # Initialize dependencies (Dependency Injection)
-    logger = ConsoleLogger()
-    fs = FileSystemRepository()
-    http = HttpRepository()
-    api_repo = ApiRepository(http)
-    file_list_repo = FileListRepository(fs)
-    link_export_repo = LinkExportRepository(fs)
-
-    # Initialize services
-    scraper_service = ScraperService(api_repo, file_list_repo, logger)
-    download_service = DownloadService(logger)
-    validation_service = ValidationService(link_export_repo, logger)
-
-    # Load or fetch files
     if args.url:
-        files = handle_scrape(args, scraper_service, logger)
+        json_path = str(Path(args.output) / "file_list.json")
+        files = scrape(args.url, json_path)
         if args.scrape_only:
             print_file_list(files)
             return
     elif args.from_json:
         try:
-            files = scraper_service.load_from_json(args.from_json)
-            logger.info(f"Loaded {len(files)} files from {args.from_json}")
+            files = load_file_list(args.from_json)
+            print(f"Loaded {len(files)} files from {args.from_json}")
         except FileNotFoundError as e:
-            logger.error(str(e))
+            print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
+        json_path = args.from_json
     else:
-        logger.error("Error: Provide --url or --from-json")
+        print("Error: Provide --url or --from-json", file=sys.stderr)
         parse_args().print_help()
         sys.exit(1)
 
-    # Execute operation
     if args.idm:
-        handle_idm_export(args, files, validation_service, logger)
+        export_for_idm(files, args)
     else:
-        handle_download(args, files, download_service, scraper_service, logger)
+        source_url = args.url if args.url else None
+        run_download(files, args, source_url, json_path)
 
 
 if __name__ == "__main__":
