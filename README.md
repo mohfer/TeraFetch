@@ -130,3 +130,7 @@ Other:
 - Download speed depends on mirror/proxy server performance
 - `--quality` requires yt-dlp installed: `pip install yt-dlp`
 - Recommended validation workers: 1-3 (safe), 5-10 (fast but may trigger rate limits)
+
+## Credit
+
+This tool uses the proxy service from [teraboxdownloader.xyz](https://teraboxdownloader.xyz) to fetch download links.
