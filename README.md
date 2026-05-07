@@ -49,6 +49,7 @@ uv run main.py -u "URL" --idm --idm-check --idm-check-workers 5
 ```
 
 **Output files:**
+
 - `downloads/idm_links.txt` - Valid links ready for IDM import
 - `downloads/idm_links_failed.txt` - Failed links (can be tried manually in IDM)
 - `downloads/validation.log` - Detailed validation logs (auto-cleared each run)
@@ -110,13 +111,20 @@ Other:
 ## Supported URLs
 
 ### TeraBox Share URLs (Auto-detect)
+
 - `https://www.1024tera.com/sharing/link?surl=XXX`
 - `https://1024terabox.com/s/XXX`
 - `https://terabox.app/sharing/link?surl=XXX`
 
 **Note:** Other TeraBox domains may work but haven't been tested yet.
 
+### URL validation behavior
+
+- `--url` accepts any syntactically valid `http`/`https` URL, but only supported TeraBox URLs are processed successfully.
+- Non-TeraBox URLs may reach the scraper and fail with the upstream response from the service.
+
 ### Cache URLs
+
 - `https://teradl.kingx.dev/cache?hash=XXX`
 
 **Note:** Other cache URLs (teraboxdownloader.xyz, teraboxdownloader.pro) may work but haven't been tested yet.

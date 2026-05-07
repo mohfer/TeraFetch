@@ -11,12 +11,14 @@ The project uses a **simplified modular architecture** with clear separation of 
 ## Development Commands
 
 ### Setup
+
 ```bash
 uv sync
 uv run playwright install chromium
 ```
 
 ### Run the application
+
 ```bash
 # From TeraBox share URL with validation
 uv run main.py -u "https://www.1024tera.com/sharing/link?surl=XXX" --idm --idm-check
@@ -32,6 +34,7 @@ uv run main.py -u "URL" --idm --idm-check --idm-check-workers 5
 ```
 
 ### Testing
+
 ```bash
 # Syntax check all files
 python -m py_compile main.py scrapers.py src/*.py
@@ -54,31 +57,36 @@ terafetch/
 ```
 
 **main.py** - CLI and orchestration
+
 - Argument parsing with argparse
 - User interaction (prompts, output)
 - Download orchestration with retry logic
 - IDM export handling
 
 **scrapers.py** - Unified scraping module
+
 - `fetch_files()` - Auto-detect URL type and fetch
 - `fetch_terabox_share()` - Playwright-based scraping for share URLs
 - `fetch_from_cache()` - API-based scraping for cache URLs
 - `save_file_list()` / `load_file_list()` - JSON persistence
 
 **src/downloader.py** - Download implementation
+
 - `download_batch()` - Concurrent downloads with ThreadPoolExecutor
 - `collect_download_links()` - Parallel validation
 - `_validate_download_url()` - Retry mechanism with exponential backoff
 - Performance optimizations: `@lru_cache`, connection pooling
 
 **src/utils.py** - Helper utilities
-- `validate_url()` - URL validation
+
+- `validate_url()` - URL syntax check
 - `is_terabox_share_url()` - URL type detection
 - `setup_logging()` - Logging configuration
 
 ### Core Modules
 
 **scrapers.py** - Unified scraping module
+
 - `fetch_files()` - Auto-detect URL type and fetch files
 - `fetch_terabox_share()` - Playwright-based scraping for share URLs
 - `fetch_from_cache()` - API-based scraping for cache URLs
@@ -86,13 +94,15 @@ terafetch/
 - `save_file_list()` / `load_file_list()` - JSON persistence
 
 **src/downloader.py** - Download implementation
+
 - `download_batch()` - Concurrent downloads with ThreadPoolExecutor
 - `collect_download_links()` - Parallel validation with configurable workers
 - `_validate_download_url()` - URL validation with retry (5 attempts, exponential backoff)
 - Performance optimizations: `@lru_cache`, connection pooling
 
 **src/utils.py** - Helper utilities
-- `validate_url()` - Validates supported URLs (only tested URLs documented)
+
+- `validate_url()` - Validates URL syntax only; scraper routing handles TeraBox support
 - `is_terabox_share_url()` - Distinguishes share URLs from cache URLs
 - `setup_logging()` - Logging configuration
 
@@ -144,11 +154,13 @@ terafetch/
 ## Supported URLs (Tested)
 
 **TeraBox Share URLs:**
+
 - `https://www.1024tera.com/sharing/link?surl=XXX`
 - `https://1024terabox.com/s/XXX`
 - `https://terabox.app/sharing/link?surl=XXX`
 
 **Cache URLs:**
+
 - `https://teradl.kingx.dev/cache?hash=XXX`
 
 Other domains may work but haven't been verified.
@@ -156,6 +168,7 @@ Other domains may work but haven't been verified.
 ## Link Expiration Handling
 
 The downloader detects expired links by checking:
+
 - JSON responses with "link expired" error
 - HTML responses instead of file content
 - Small file sizes (< 1KB)
@@ -165,6 +178,7 @@ When detected, `main.py` automatically re-scrapes fresh links and retries (up to
 ## Validation Features
 
 When using `--idm-check`:
+
 - Parallel validation with configurable workers (default: 3)
 - 5 retries with exponential backoff (1s, 2s, 4s, 8s, 16s)
 - HTTP 5xx errors are retried, HTTP 4xx fail immediately
@@ -181,6 +195,7 @@ When using `--idm-check`:
 ## Important Notes
 
 - Use `--url` instead of `--from-json` to enable auto re-scrape on expired links
+- Non-TeraBox URLs may pass basic syntax checks but will fail in the scraper
 - Validation workers: 1-3 (safe), 5-10 (fast but may trigger rate limits)
 - Links can fail validation but still work in IDM (server-side issues)
 - Referer headers are automatically set based on URL domain

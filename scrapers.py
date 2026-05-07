@@ -21,6 +21,7 @@ class TeraBoxXYZDownloader:
 
     async def fetch_files(self, terabox_url: str) -> dict:
         api_response = None
+        error_message = None
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
@@ -30,12 +31,18 @@ class TeraBoxXYZDownloader:
             page = await context.new_page()
 
             async def handle_response(response):
-                nonlocal api_response
+                nonlocal api_response, error_message
                 if 'teradl.kingx.dev/gettask' in response.url:
                     try:
                         payload = await response.json()
                         if 'result' in payload and payload['result']:
                             api_response = payload['result']
+                            return
+                        for key in ('message', 'msg', 'error', 'detail', 'reason'):
+                            value = payload.get(key)
+                            if isinstance(value, str) and value.strip():
+                                error_message = value.strip()
+                                return
                     except:
                         pass
 
@@ -51,7 +58,24 @@ class TeraBoxXYZDownloader:
                     break
                 await asyncio.sleep(1)
 
+            if not api_response and not error_message:
+                try:
+                    body_text = await page.locator("body").inner_text()
+                except Exception:
+                    body_text = ""
+
+                for message in (
+                    "Short URL not found in the provided link.",
+                    "This link has been blocked according to the local laws, regulations, or policies",
+                ):
+                    if message in body_text:
+                        error_message = message
+                        break
+
             await browser.close()
+
+        if error_message:
+            return {"error": error_message}
 
         return api_response
 
@@ -62,6 +86,9 @@ class TeraBoxXYZDownloader:
 def fetch_terabox_share(terabox_url: str) -> list[dict]:
     downloader = TeraBoxXYZDownloader()
     api_data = downloader.get_files(terabox_url)
+
+    if isinstance(api_data, dict) and api_data.get("error"):
+        raise ValueError(api_data["error"])
 
     if not api_data or 'files' not in api_data:
         return []
